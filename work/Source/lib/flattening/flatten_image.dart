@@ -56,10 +56,10 @@ Future<FlattenedImage> flattenImage(
     // Perspective establishes the document plane first. Once an accepted
     // interior mesh exists, printed text/rules/shapes are the surface ruler;
     // do not let the crop edge bend the content a second time.
-    followCurves:
-        (interiorMesh == null ||
-            interiorMesh.method.startsWith('Identity mesh')) &&
-        followCurves,
+    // Interior mesh correction must not disable the measured outer boundary
+    // curves. Rounded card corners are boundary geometry, independent from
+    // the content mesh used inside the document.
+    followCurves: followCurves,
   );
   final format = identifyDocumentFormat(
     estimatedRatio ?? map.estimatedRatio,

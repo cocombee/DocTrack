@@ -18,6 +18,42 @@ class RoundedOutline {
       corners.add((cy == 0 ? 0 : 2) + (cx == 0 ? 0 : 1));
       measurements.add((rx * width + ry * height) / 2);
     }
+    // A low-contrast or occluded rounded corner is sometimes simplified by
+    // boundary fitting into one short straight chamfer. If another corner
+    // already establishes a rounded family, treat only these short corner
+    // transitions as the matching rounded corner. A hard passport corner is
+    // made from two long sides and therefore does not qualify here.
+    var matchingShortCorners = 0;
+    if (corners.length >= 2) {
+      for (var i = 0; i < geometry.segments.length; i++) {
+        final s = geometry.segments[i];
+        if (s.isCurve || s.isImageClip) continue;
+        final a = geometry.rectify(s.start), b = geometry.rectify(s.end);
+        final length = math.sqrt(
+          math.pow((a.x - b.x) * width, 2) +
+              math.pow((a.y - b.y) * height, 2),
+        );
+        if (length <= 2 || length > math.min(width, height) * .2) continue;
+        final mid = geometry.rectify(s.at(.5));
+        final distances = [
+          math.sqrt(mid.x * mid.x + mid.y * mid.y),
+          math.sqrt((mid.x - 1) * (mid.x - 1) + mid.y * mid.y),
+          math.sqrt(mid.x * mid.x + (mid.y - 1) * (mid.y - 1)),
+          math.sqrt((mid.x - 1) * (mid.x - 1) + (mid.y - 1) * (mid.y - 1)),
+        ];
+        final corner = distances.indexOf(distances.reduce(math.min));
+        if (distances[corner] < .22) {
+          matchingShortCorners++;
+          corners.add(corner);
+        }
+      }
+    }
+    // Two clear arcs plus one matching short transition are sufficient to
+    // establish the rounded stock family; the remaining corner is commonly
+    // hidden by glare, an emblem, or a low-contrast edge.
+    if (corners.length >= 2 && matchingShortCorners > 0) {
+      corners.addAll([0, 1, 2, 3]);
+    }
     if (corners.length < 2) {
       corners.clear(); // One uncertain arc cannot establish a corner family.
       return;

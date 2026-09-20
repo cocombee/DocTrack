@@ -94,6 +94,10 @@ def solve(path, working_resolution_path=None):
     if valid(candidate):candidates.append(('UVDoc mesh',candidate))
     calibrated=calibrate_corners(raw)
     if valid(calibrated,edge_extension=True):candidates.append(('UVDoc surface mesh',calibrated))
+    # UVDoc supplies the deformation prediction for regions with no visible
+    # ruler. Content anchors below correct this prediction locally instead of
+    # leaving unsupported cells at identity.
+    predicted_prior=calibrated if valid(calibrated,edge_extension=True) else None
     # The text/line solver is a second proposal. Its automatic detector is not
     # used: the caller's alpha mask is the sole region-of-interest authority.
     import dewarping.dewarp as dm
@@ -157,6 +161,10 @@ def solve(path, working_resolution_path=None):
     band_horizontal=[p[:,::-1] for p in band_rulers(bgr.transpose(1,0,2).copy(),[p[:,::-1] for p in paragraph_horizontal])]
     frame_vertical+=band_vertical
     frame_horizontal+=band_horizontal
+    # Interior closed shapes are content guides; crop edges and tears remain
+    # outside the mesh evidence.
+    shape_horizontal=[p for p in closed_h if p[:,0].ptp()>.18 and p[:,1].min()>.04 and p[:,1].max()<.96]
+    shape_vertical=[p for p in closed_v if p[:,1].ptp()>.18 and p[:,0].min()>.04 and p[:,0].max()<.96]
     from barcode_ruler import barcode_rulers, barcode_envelopes
     barcode_vertical=barcode_rulers(gray)
     # The barcode's vertical bars are strong vertical rulers.  Do not turn
@@ -164,13 +172,26 @@ def solve(path, working_resolution_path=None):
     # incorrectly bends the barcode's interior.  Only its top and bottom
     # envelope edges constrain horizontal straightening.
     barcode_horizontal=barcode_envelopes(gray)
-    horizontal=[(p,4.) for p in barcode_horizontal]+[(p,2.) for p in frame_horizontal]+[(p,.6) for p in paragraph_horizontal]+[(p,4.) for p in rules]+[(p,3.) for p in text_guides]
-    vertical=[(p,4.) for p in barcode_vertical]+[(p,2.) for p in frame_vertical]+[(p,.6) for p in paragraph_vertical]+[(p,4.) for p in vertical_rules]+[(p,3.) for p in vertical_text]
+    legacy_horizontal=[(p,4.) for p in barcode_horizontal]+[(p,2.) for p in frame_horizontal]+[(p,.6) for p in paragraph_horizontal]+[(p,4.) for p in rules]+[(p,3.) for p in text_guides]
+    legacy_vertical=[(p,4.) for p in barcode_vertical]+[(p,2.) for p in frame_vertical]+[(p,.6) for p in paragraph_vertical]+[(p,4.) for p in vertical_rules]+[(p,3.) for p in vertical_text]
+    legacy_grid=ruler_mesh(legacy_horizontal,legacy_vertical,prior=ruled if ruled is not None else None,prior_weight=.045)
+    # Content-first mesh: paper boundary, tears, and page size establish the
+    # outer crop only. They must not pull the interior mesh. Interior control
+    # comes from text, printed rules, barcode/object envelopes, and landmarks.
+    horizontal=[(p,4.) for p in barcode_horizontal]+[(p,4.) for p in rules]+[(p,3.) for p in text_guides]+[(p,2.) for p in shape_horizontal]
+    vertical=[(p,4.) for p in barcode_vertical]+[(p,4.) for p in vertical_rules]+[(p,3.) for p in vertical_text]+[(p,2.) for p in shape_vertical]
     # Require multiple independent rulers before changing the surface.
     if len(frame_horizontal)+len(frame_vertical)+len(rules)+len(text_guides)+len(vertical_rules)+len(vertical_text)>=3 or len(vertical_rules)>=2:
-        shared=ruler_mesh(horizontal,vertical,prior=ruled if ruled is not None else None,
+        shared=ruler_mesh(horizontal,vertical,
+            prior=predicted_prior if predicted_prior is not None else (ruled if ruled is not None else None),
             prior_weight=.045)
-        if valid(shared,edge_extension=True):candidates.append(('Shared mesh rulers',shared))
+        if valid(shared,edge_extension=True):
+            # Blend the content-anchored proposal with the established ruled
+            # surface when available. This keeps the Safe Build's smooth
+            # interpolation while retaining the New Build's local anchors.
+            if ruled is not None and valid(ruled,edge_extension=True):
+                shared=.65*shared+.35*ruled
+            candidates.append(('Shared mesh rulers',shared))
     circles=circular_landmarks(gray)
     def preserves_shapes(g):
         for guides,axis in ((barcode_horizontal,1),(barcode_vertical,0)):
@@ -248,6 +269,17 @@ def solve(path, working_resolution_path=None):
         # No evidence, no extra deformation. Three independent text lines and
         # meaningful improvement are required; flat text should remain flat.
         if len(lines)>=3 and baseline is not None and baseline>.0008 and score is not None and score<baseline*.9 and (best is None or score<best):chosen=g;method=name;best=score
+    # Never replace an established mapping with a content-first proposal that
+    # worsens the measured text alignment for this document.
+    legacy_score=line_error(evidence_grid(legacy_grid),lines)
+    if method == 'Shared mesh rulers' and baseline is not None:
+        # Text-line and printed-rule alignment is the primary objective. A
+        # small residual increase in the aggregate detector score is allowed
+        # when the visible content guides improve substantially.
+        if best is not None and best > baseline*1.05:
+            chosen=IDENTITY; method='Identity mesh · content proposal rejected'; best=baseline
+        if legacy_score is not None and best is not None and best > legacy_score*1.05:
+            chosen=legacy_grid; method='Legacy shared mesh · content proposal rejected'; best=legacy_score
     # Higher resolution can lose previously reliable grouping. Preserve the
     # working-resolution solution as a proposal, judged by the same independent
     # shape and line evidence rather than silently reverting to no correction.
@@ -274,7 +306,7 @@ def solve(path, working_resolution_path=None):
                 else:measurements.append({'method':'Working-resolution proposal','error':'worker failed'})
             except (OSError,ValueError,subprocess.TimeoutExpired) as error:
                 measurements.append({'method':'Working-resolution proposal','error':type(error).__name__})
-    return {'rows':N,'columns':N,'grid':chosen.reshape(-1,2).tolist(),'method':method,'lines':len(lines),'printed_rules':len(rules),'text_rulers':len(text_guides),'vertical_rules':len(vertical_rules),'vertical_text_rulers':len(vertical_text),'paragraph_rulers':len(paragraph_horizontal)+len(paragraph_vertical),'band_rulers':len(band_horizontal)+len(band_vertical),'barcode_rulers':len(barcode_horizontal)+len(barcode_vertical),'frame_rulers':len(frame_horizontal)+len(frame_vertical),'circular_landmarks':len(circles),'baseline_error':baseline,'selected_error':best,'candidates':measurements}
+    return {'rows':N,'columns':N,'grid':chosen.reshape(-1,2).tolist(),'method':method,'lines':len(lines),'text_rulers':len(text_guides),'vertical_rules':len(vertical_rules),'vertical_text_rulers':len(vertical_text),'paragraph_rulers':len(paragraph_horizontal)+len(paragraph_vertical),'band_rulers':len(band_horizontal)+len(band_vertical),'barcode_rulers':len(barcode_horizontal)+len(barcode_vertical),'frame_rulers':len(frame_horizontal)+len(frame_vertical),'circular_landmarks':len(circles),'baseline_error':baseline,'legacy_error':legacy_score,'selected_error':best,'candidates':measurements}
 
 if __name__=='__main__':
     result=solve(sys.argv[1],sys.argv[3] if len(sys.argv)>3 else None);Path(sys.argv[2]).write_text(json.dumps(result,allow_nan=False))

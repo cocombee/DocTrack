@@ -92,9 +92,15 @@ bool preserveDocumentOutline(
   DocumentFormat format,
   DocumentContentEvidence content, {
   required bool hasRoundedCorners,
-}) =>
-    content.kind == DocumentKind.identityDocument ||
-    format.label.startsWith('ID /') ||
-    format.label.startsWith('Passport') ||
-    format.label.startsWith('Business card') ||
-    (content.kind != DocumentKind.transactionPaper && hasRoundedCorners);
+}) {
+  // Format identifies the document family, not its physical corner shape.
+  // Preserve rounded stock only when the boundary detector found a coherent
+  // rounded-corner family. Passport and ID cards may have hard corners, and a
+  // cut/occluded corner must remain eligible for background repair.
+  if (!hasRoundedCorners) return false;
+  return content.kind == DocumentKind.identityDocument ||
+      format.label.startsWith('ID /') ||
+      format.label.startsWith('Passport') ||
+      format.label.startsWith('Business card') ||
+      content.kind != DocumentKind.transactionPaper;
+}
