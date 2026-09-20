@@ -1,0 +1,20 @@
+# Flutter/Dart generated files
+work/Source/build/
+work/Source/.dart_tool/
+work/Source/.packages
+work/Source/.flutter-plugins
+work/Source/.flutter-plugins-dependencies
+work/Source/macos/Flutter/ephemeral/
+# Generated diagnostics and output collections
+outputs/
+work/Scanner Integration/
+work/Outline Review/
+work/Tracker Engine/.dart_tool/
+work/Tracker Engine/build/
+# OS/editor files
+.DS_Store
+*.swp
+work/Build Log.txt
+work/Data/
+work/Tracker Engine/
+work/Tracker ONNX/
