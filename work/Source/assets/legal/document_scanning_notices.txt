@@ -1,0 +1,27 @@
+Audyt Document Scanning — Third-Party Notices
+
+Audyt is proprietary software. The licences below apply only to the named
+third-party components and do not grant rights to Audyt source code.
+
+COMPONENTS DISTRIBUTED IN THE DOCUMENT-SCANNING BINARY
+
+Flutter and Dart packages
+The complete licence texts for Flutter and every bundled Dart package are
+provided by the installed application's generated flutter_assets/NOTICES.Z
+licence registry.
+
+image 4.9.2 — MIT License
+Copyright (c) 2013-2022 Brendan Duncan. All rights reserved.
+
+cupertino_icons 1.0.9 — MIT License
+Copyright (c) 2016 Vladimir Kharlampidi.
+
+onnxruntime Dart/Flutter wrapper 1.4.1 — MIT License
+Copyright (c) 2023 gtbluesky.
+
+Microsoft ONNX Runtime 1.15.1 — MIT License
+The complete Microsoft notice is included in flutter_assets/NOTICES.Z.
+
+The MIT License permits commercial use, modification and distribution when
+its copyright and permission notices are retained. Complete licence texts are
+available through the installed application's licence registry.

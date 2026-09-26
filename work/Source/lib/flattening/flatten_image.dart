@@ -36,9 +36,41 @@ Future<FlattenedImage> flattenImage(
   InteriorMesh? interiorMesh,
   bool repairBorder = true,
   bool? preserveRoundedCorners,
-}) => Isolate.run(() {
+  double documentScale = 1.0,
+}) => Isolate.run(
+  () => _flattenImage(
+    bytes,
+    boundary,
+    ratio: ratio,
+    followCurves: followCurves,
+    maxDimension: maxDimension,
+    textLines: textLines,
+    estimatedRatio: estimatedRatio,
+    interiorMesh: interiorMesh,
+    repairBorder: repairBorder,
+    preserveRoundedCorners: preserveRoundedCorners,
+    documentScale: documentScale,
+  ),
+);
+
+FlattenedImage _flattenImage(
+  Uint8List bytes,
+  BoundaryResult boundary, {
+  double? ratio,
+  bool followCurves = true,
+  int maxDimension = 1600,
+  List<String> textLines = const [],
+  double? estimatedRatio,
+  InteriorMesh? interiorMesh,
+  bool repairBorder = true,
+  bool? preserveRoundedCorners,
+  double documentScale = 1.0,
+}) {
   if (maxDimension < 16 || maxDimension > 4096) {
     throw ArgumentError('Invalid output resolution');
+  }
+  if (!documentScale.isFinite || documentScale < 1.0 || documentScale > 1.25) {
+    throw ArgumentError('Invalid document scale');
   }
   final decoded = img.decodeImage(bytes);
   if (decoded == null) {
@@ -65,7 +97,8 @@ Future<FlattenedImage> flattenImage(
     estimatedRatio ?? map.estimatedRatio,
     textLines,
   );
-  final cardFamily = format.label.startsWith('ID /') ||
+  final standardCardFamily =
+      format.label.startsWith('ID /') ||
       format.label.startsWith('Passport') ||
       format.label.startsWith('Business card') ||
       format.label.startsWith('Credit card');
@@ -74,7 +107,7 @@ Future<FlattenedImage> flattenImage(
   // guessed Letter/A4/B5 frame; missing areas are repaired later.
   final aspect =
       ratio ??
-      (cardFamily
+      (standardCardFamily
           ? format.orientedRatio(estimatedRatio ?? map.estimatedRatio)
           : null) ??
       estimatedRatio ??
@@ -85,16 +118,56 @@ Future<FlattenedImage> flattenImage(
   final content = DocumentContentEvidence.fromLines(textLines);
   final w = aspect >= 1 ? maxDimension : (maxDimension * aspect).round();
   final h = aspect >= 1 ? (maxDimension / aspect).round() : maxDimension;
-  final outline = RoundedOutline(map, w, h);
+  final outline = RoundedOutline(
+    map,
+    w,
+    h,
+    normalizeIdCorners:
+        !format.label.startsWith('Passport') &&
+        (format.label.startsWith('ID /') ||
+            content.kind == DocumentKind.identityDocument),
+    repairMissingCorners: !format.label.startsWith('Passport'),
+  );
   // Size recognition cannot discard an accepted two/four-corner family.
   // Transaction paper still repairs tears and folds to a rectangular sheet.
-  final rounded =
-      preserveRoundedCorners ??
-      preserveDocumentOutline(
-        format,
-        content,
-        hasRoundedCorners: outline.corners.length >= 2,
-      );
+  final idFamily =
+      format.label.startsWith('ID /') ||
+      content.kind == DocumentKind.identityDocument;
+  // Once detection identifies an ID family, its rounded card clip is absolute;
+  // later border/line evidence cannot downgrade it to a hard rectangle.
+  final rounded = idFamily
+      ? true
+      : (preserveRoundedCorners ??
+            preserveDocumentOutline(
+              format,
+              content,
+              hasRoundedCorners: outline.corners.length >= 2,
+            ));
+  // A confirmed rounded outline is already the document silhouette. Do not
+  // synthesize stock/background pixels along that edge.
+  final roundedCornerCount = outline.corners.length;
+  var shortCornerCount = 0;
+  for (final s in map.segments) {
+    if (s.isCurve || s.isImageClip) continue;
+    final a = map.rectify(s.start), b = map.rectify(s.end);
+    final length = math.sqrt(
+      math.pow((a.x - b.x) * w, 2) + math.pow((a.y - b.y) * h, 2),
+    );
+    if (length <= math.min(w, h) * .2) shortCornerCount++;
+  }
+  final hardCornerEdgeCount = map.segments
+      .where((s) => !s.isCurve && !s.isImageClip)
+      .length;
+  // Familiar card/passport proportions become a card-family decision only
+  // when the boundary also supplies corner evidence: two rounded corners, or
+  // two explicit hard corner transitions. This keeps ordinary paper on the
+  // stock edge-repair path.
+  final cardFamily =
+      (format.label.startsWith('ID /') ||
+          format.label.startsWith('Passport')) &&
+      (roundedCornerCount >= 2 || shortCornerCount >= 2) &&
+      hardCornerEdgeCount <= 2;
+  final doRepairBorder = repairBorder && !rounded && !cardFamily;
   bool insideShape(double u, double v) => !rounded || outline.contains(u, v);
   final coverageRepair =
       repairBorder &&
@@ -104,8 +177,15 @@ Future<FlattenedImage> flattenImage(
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
       final u = (x + .5) / w, v = (y + .5) / h;
-      if (repairBorder && !insideShape(u, v)) continue;
-      final local = interiorMesh?.at(u, v) ?? TrackerPoint(u, v);
+      // Rounded IDs always use the fixed silhouette as a clip. Rectangular
+      // documents use the same predicate only while performing edge repair.
+      if ((rounded || doRepairBorder) && !insideShape(u, v)) continue;
+      // A small ID-only overscan trims uncertain detector pixels at the
+      // perimeter without changing the detected quadrilateral or paper crop.
+      final sampleU = ((u - .5) / documentScale + .5).clamp(0.0, 1.0);
+      final sampleV = ((v - .5) / documentScale + .5).clamp(0.0, 1.0);
+      final local =
+          interiorMesh?.at(sampleU, sampleV) ?? TrackerPoint(sampleU, sampleV);
       final p = map.source(local.x, local.y);
       final sx = p.x * source.width - .5, sy = p.y * source.height - .5;
       final available =
@@ -147,7 +227,7 @@ Future<FlattenedImage> flattenImage(
       );
     }
   }
-  if (repairBorder) {
+  if (doRepairBorder) {
     final surface = BackgroundSurface.estimate(
       output,
       localFallback: const bool.fromEnvironment(
@@ -210,6 +290,48 @@ Future<FlattenedImage> flattenImage(
     }
     featherBackground(output, repaired, surface, adjacentColor: adjacentStock);
   }
+  final preservedMesh = interiorMesh?.preservedMesh;
+  if (preservedMesh != null) {
+    final preserved = img.decodePng(
+      _flattenImage(
+        bytes,
+        boundary,
+        ratio: ratio,
+        followCurves: followCurves,
+        maxDimension: maxDimension,
+        textLines: textLines,
+        estimatedRatio: estimatedRatio,
+        interiorMesh: preservedMesh,
+        repairBorder: repairBorder,
+        preserveRoundedCorners: preserveRoundedCorners,
+        documentScale: documentScale,
+      ).png,
+    )!;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        final u = (((x + .5) / w - .5) / documentScale + .5).clamp(0.0, 1.0);
+        final v = (((y + .5) / h - .5) / documentScale + .5).clamp(0.0, 1.0);
+        final inRefinement = interiorMesh!.refinementRegions.any(
+          (r) => u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3],
+        );
+        final previous = preserved.getPixel(x, y);
+        // Edge/stock repair can otherwise alter pixels outside a local warp.
+        // Reuse the accepted render there and preserve its exact silhouette.
+        if (!inRefinement ||
+            previous.a != 255 ||
+            output.getPixel(x, y).a != 255) {
+          output.setPixelRgba(
+            x,
+            y,
+            previous.r,
+            previous.g,
+            previous.b,
+            previous.a,
+          );
+        }
+      }
+    }
+  }
   return FlattenedImage(
     Uint8List.fromList(img.encodePng(output)),
     w,
@@ -217,4 +339,4 @@ Future<FlattenedImage> flattenImage(
     aspect,
     ratio == null ? format.label : 'Custom proportions',
   );
-});
+}

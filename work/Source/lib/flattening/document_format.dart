@@ -10,11 +10,16 @@ class DocumentFormat {
   });
   final String label;
   final double? landscapeRatio, widthMm, heightMm;
-  double? orientedRatio(double observed) => landscapeRatio == null
-      ? null
-      : observed >= 1
-      ? landscapeRatio
-      : 1 / landscapeRatio!;
+  double? orientedRatio(double observed) {
+    if (landscapeRatio == null) return null;
+    final target = observed >= 1 ? landscapeRatio! : 1 / landscapeRatio!;
+    // A family label can be correct while the visible crop is wider or
+    // narrower because of an open passport spread, clipped edge, or partial
+    // capture. Only snap to physical stock when the measured ratio agrees;
+    // otherwise preserve the detected crop so content is not squeezed and
+    // border repair does not invent a missing end.
+    return (observed / target - 1).abs() <= .10 ? target : null;
+  }
 }
 
 DocumentFormat identifyDocumentFormat(
@@ -47,7 +52,7 @@ DocumentFormat identifyDocumentFormat(
   if (words(
         r'\b(passport|passeport|pasaporte|reisepass|pasport|putovnica)\b',
       ) &&
-      plausible(125 / 88, .22)) {
+      plausible(125 / 88, .35)) {
     return const DocumentFormat(
       'Passport',
       125 / 88,
@@ -58,7 +63,7 @@ DocumentFormat identifyDocumentFormat(
   if (words(
         r'\b(identity|identification|driver|driving|licence|license|credit|debit|identidad|identita|fuhrerschein|führerschein)\b|주민등록|身份证|身分證',
       ) &&
-      plausible(85.6 / 53.98, .22)) {
+      plausible(85.6 / 53.98, .35)) {
     return const DocumentFormat(
       'ID / credit-card proportions',
       85.6 / 53.98,
@@ -97,10 +102,13 @@ bool preserveDocumentOutline(
   // Preserve rounded stock only when the boundary detector found a coherent
   // rounded-corner family. Passport and ID cards may have hard corners, and a
   // cut/occluded corner must remain eligible for background repair.
+  // Identity evidence is already a confirmed family decision in the caller;
+  // keep this helper consistent with that decision even when glare hides the
+  // sampled corner arcs. Ratio-only card estimates still require real corner
+  // evidence so ordinary paper remains eligible for edge repair.
+  if (content.kind == DocumentKind.identityDocument) return true;
   if (!hasRoundedCorners) return false;
-  return content.kind == DocumentKind.identityDocument ||
-      format.label.startsWith('ID /') ||
-      format.label.startsWith('Passport') ||
+  return format.label.startsWith('ID /') ||
       format.label.startsWith('Business card') ||
       content.kind != DocumentKind.transactionPaper;
 }

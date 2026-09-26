@@ -8,8 +8,126 @@ import 'package:tracker_engine/tracker_engine.dart';
 import 'package:pen_tool/flattening/flatten_geometry.dart';
 import 'package:pen_tool/flattening/flatten_image.dart';
 import 'package:pen_tool/flattening/document_format.dart';
+import 'package:pen_tool/flattening/interior_mesh.dart';
 
 void main() {
+  test(
+    'local correction preserves every outside pixel and the full silhouette',
+    () async {
+      final image = img.Image(width: 80, height: 80, numChannels: 4);
+      for (var y = 0; y < 80; y++) {
+        for (var x = 0; x < 80; x++) {
+          image.setPixelRgba(
+            x,
+            y,
+            180 + y ~/ 3,
+            190 + x ~/ 3,
+            170 + (x + y) ~/ 5,
+            255,
+          );
+        }
+      }
+      const corners = [
+        TrackerPoint(0, 0),
+        TrackerPoint(1, 0),
+        TrackerPoint(1, 1),
+        TrackerPoint(0, 1),
+      ];
+      final boundary = BoundaryResult(
+        width: 80,
+        height: 80,
+        status: BoundaryStatus.detected,
+        outerBoundary: [],
+        boundarySegments: [
+          for (var i = 0; i < 4; i++)
+            BoundarySegment(corners[i], corners[(i + 1) % 4]),
+        ],
+        corners: corners,
+        confidence: 1,
+        modelVersion: 'test',
+        preprocessingVersion: 'test',
+      );
+      final original = InteriorMesh.identity(rows: 5, columns: 5);
+      final correction = InteriorMesh.fromJson({
+        'rows': 5,
+        'columns': 5,
+        'method': 'local',
+        'grid': [
+          for (var y = 0; y < 5; y++)
+            for (var x = 0; x < 5; x++)
+              [x / 4, y / 4 + (x == 2 && y == 2 ? .04 : 0)],
+        ],
+        'preserved_mesh': {
+          'rows': 5,
+          'columns': 5,
+          'method': 'prior',
+          'grid': [
+            for (final point in original.points) [point.x, point.y],
+          ],
+        },
+        'refinement_regions': [
+          [.25, .25, .75, .75],
+        ],
+      });
+      final bytes = Uint8List.fromList(img.encodePng(image));
+      Future<img.Image> render(InteriorMesh mesh) async => img.decodePng(
+        (await flattenImage(
+          bytes,
+          boundary,
+          ratio: 1,
+          maxDimension: 80,
+          followCurves: false,
+          interiorMesh: mesh,
+        )).png,
+      )!;
+      final prior = await render(original), revised = await render(correction);
+      var changedInside = 0;
+      for (var y = 0; y < 80; y++) {
+        for (var x = 0; x < 80; x++) {
+          final a = prior.getPixel(x, y), b = revised.getPixel(x, y);
+          expect(b.a, a.a);
+          final changed = a.r != b.r || a.g != b.g || a.b != b.b;
+          if (x < 20 || x >= 60 || y < 20 || y >= 60) {
+            expect(changed, isFalse, reason: 'protected pixel $x,$y');
+          } else if (changed) {
+            changedInside++;
+          }
+        }
+      }
+      expect(changedInside, greaterThan(0));
+      final second = InteriorMesh(
+        correction.rows,
+        correction.columns,
+        [
+          for (var i = 0; i < correction.points.length; i++)
+            TrackerPoint(
+              correction.points[i].x,
+              correction.points[i].y + (i == 12 ? .04 : 0),
+            ),
+        ],
+        'second local correction',
+        preservedMesh: correction,
+        refinementRegions: const [
+          [.3, .3, .7, .7],
+        ],
+      );
+      final twice = await render(second);
+      var secondChanges = 0;
+      for (var y = 0; y < 80; y++) {
+        for (var x = 0; x < 80; x++) {
+          final a = revised.getPixel(x, y), b = twice.getPixel(x, y);
+          expect(b.a, a.a);
+          final changed = a.r != b.r || a.g != b.g || a.b != b.b;
+          if (x < 24 || x >= 56 || y < 24 || y >= 56) {
+            expect(changed, isFalse, reason: 'prior refinement pixel $x,$y');
+          } else if (changed) {
+            secondChanges++;
+          }
+        }
+      }
+      expect(secondChanges, greaterThan(0));
+    },
+  );
   const q = [
     TrackerPoint(.15, .1),
     TrackerPoint(.85, .2),

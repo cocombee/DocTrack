@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "productComponent": "Audyt Document Scanning",
+  "distribution": "proprietary-commercial",
+  "noticeResource": "assets/legal/document_scanning_notices.txt",
+  "components": [
+    {
+      "name": "Flutter and Dart transitive dependencies",
+      "bundled": true,
+      "commercialApproved": true,
+      "licenseEvidence": "flutter_assets/NOTICES.Z"
+    },
+    {
+      "name": "image",
+      "version": "4.9.2",
+      "bundled": true,
+      "commercialApproved": true,
+      "license": "MIT",
+      "noticeEvidence": "flutter_assets/NOTICES.Z"
+    },
+    {
+      "name": "cupertino_icons",
+      "version": "1.0.9",
+      "bundled": true,
+      "commercialApproved": true,
+      "license": "MIT",
+      "noticeEvidence": "flutter_assets/NOTICES.Z"
+    },
+    {
+      "name": "onnxruntime Flutter wrapper",
+      "version": "1.4.1",
+      "bundled": true,
+      "commercialApproved": true,
+      "license": "MIT",
+      "noticeEvidence": "flutter_assets/NOTICES.Z"
+    },
+    {
+      "name": "Microsoft ONNX Runtime",
+      "version": "1.15.1",
+      "bundled": true,
+      "commercialApproved": true,
+      "license": "MIT",
+      "noticeEvidence": "flutter_assets/NOTICES.Z"
+    }
+  ],
+  "prohibitedInCommercialBundle": [
+    "*.onnx model weights without manifest approval",
+    "*.pkl model weights without manifest approval",
+    "*.tflite model weights without manifest approval",
+    "FairScan",
+    "DocRes",
+    "LaMa"
+  ]
+}

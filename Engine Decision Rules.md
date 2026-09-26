@@ -49,7 +49,7 @@ Keep stroke, anchor and handle sizes constant while zooming. Preserve box select
 - The saved green references are the evaluation target. Preserve their geometry and handles. The newly requested crop rule is an addition; it does not justify flattening their bends or redesigning their corners.
 - A verified rigid quadrilateral has four main straight sides and at most four corner arcs. One or two independently supported cuts may add short straight sides. Weak contrast is uncertainty, not permission to generate an unrestricted contour. This is a geometric hypothesis; the current adapter has no validated semantic ID-card classifier.
 - Crop limits must come from the actual raster extent or an explicit valid-data polygon supplied by a trusted image transform. Black pixels, even pure and uninterrupted, are image data unless source metadata establishes otherwise. Black printing must never establish a crop limit. Cropping only affects the supported frame closure, never unrelated document edges. Verified clip segments receive zero display inset.
-- A separate FairScan v1.2.0 segmentation evaluation was run on all 50 originals. Its raw masks merged background objects, followed hands, and omitted printed card regions in critical cases. It is rejected as a replacement and is not integrated in the production adapter. Evaluation files are under `work/Scanner Integration/Segmentation Evaluation`.
+- A separate FairScan v1.2.0 segmentation evaluation was rejected because its raw masks merged background objects, followed hands, and omitted printed card regions. Its model, outputs, and evaluation scripts were removed; it is not part of the production adapter.
 
 ## Extension preserves corners
 
@@ -99,3 +99,61 @@ The fourth toolbar button is a global flatten-mode toggle across sample navigati
 A little bottom content may move beyond the output frame when necessary to straighten sample 46; do not force every pixel back inside by bending the mesh. This is permission for bounded cropping, not permission to erase text or use sample-specific runtime logic. All new geometry remains subject to fold-over checks and preservation of existing working cases.
 
 Accepted two/four rounded-corner families survive flattening even when OCR or estimated physical proportions do not identify a card format. Format inference must not turn those accepted curves into opaque rectangular corners. Confirmed transaction paper still repairs missing edges to a rectangle.
+
+## Receipt content straightening
+
+A ratio-only card estimate cannot suppress interior correction without at least
+two true rounded corners or two distinct short two-point corner transitions.
+Long bowed paper sides are not corner evidence. Confirmed card and passport
+evidence retains its rigid perspective path, even with conflicting OCR.
+
+Straightening must assess printed rules, text baselines and barcode bars and
+envelopes. Dark-only text extraction may recover rows lost when opposite ink
+polarities merge; it supplements validated guides rather than replacing them.
+Barcode envelopes must retain observed curvature before solving. Apply the
+narrow receipt refinement only with multiple independent guides, a valid
+nonfolding mesh and per-guide preservation checks. Failed proposals retain the
+previous accepted mesh. Sample names and numbers are evaluation inputs only.
+
+User visual review supersedes aggregate guide scores. The first preview in the
+September 26 straightening run is the receipt's accepted text/line reference;
+the later global refit was rejected because its improved barcode came with
+worse text and lines. Preserve the original page map and transfer the improved
+map only inside evidence-derived barcode and final-row regions. Transfer only
+vertical displacement for the final text row. Verify all protected original
+guides and the full regression set, and retain the original map on failure.
+Never claim perfect straightening from guide scores alone.
+
+Straightening is a general residual-detection process, not a request to repair
+a named top, middle, centre or bottom region. Start from the accepted map and
+inspect reliable text, rules, barcode geometry and shape landmarks throughout
+the document. Actual letter ink must support a text correction; a straight
+polynomial fitted to an incorrect baseline does not prove that the letters are
+straight. Reject font-contour scatter that lacks a coherent distortion trend.
+
+Propose bounded corrections only at evidence-derived locations. Validate every
+other accepted guide, reject folds, and preserve the document silhouette. Each
+failed proposal leaves the prior result in place. Evaluate the exact prior map
+outside accepted regions and reuse its rendered pixels there, including border
+repair, so a local correction cannot change established content elsewhere.
+Verify position independence with the same distortion at multiple page heights
+and run the full document regression. Visual review remains authoritative.
+
+Evaluate both document axes. Repeated text margins can support a horizontal
+displacement correction for vertical alignment; compose it with the accepted
+surface map so established horizontal baselines and spacing remain fixed.
+Protect crossed printed rules, barcode bars and envelopes, and shape landmarks.
+Ragged margins or unsupported alignment must not force a correction.
+
+Neighbouring text rows with independently measured, correlated bends may share
+one ordered surface patch. Join nearby fragments of the same ink row before
+fitting, while keeping adjacent rows and paragraph gaps distinct. Validate the
+whole patch against established content outside it. Retain the exact approved
+image 2 render as a regression reference while reviewing image 5; approach
+image 46 only after earlier working cases remain intact.
+
+Actual-ink residual patches must preserve the complete prior refinement chain.
+Protect neighbouring glyph envelopes and real sideways words, reject accidental
+vertical stacks of paragraph glyphs, and validate glyph height and sideways
+displacement as well as baseline straightness. The pink invoice is the next
+review target; accepted receipt, paper and card results remain regression gates.

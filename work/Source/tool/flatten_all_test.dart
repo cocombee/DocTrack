@@ -12,6 +12,7 @@ import 'package:pen_tool/flattening/flatten_image.dart';
 import 'package:pen_tool/flattening/flatten_geometry.dart';
 import 'package:pen_tool/flattening/rounded_outline.dart';
 import 'package:pen_tool/flattening/document_format.dart';
+import 'package:pen_tool/flattening/rigid_document.dart';
 
 void main() {
   test('flatten accepted detector outputs without changing them', () async {
@@ -161,10 +162,41 @@ void main() {
                 repairBorder: false,
               )
             : null;
-        final mesh = await InteriorMeshJob().run(
+        final diagnosticMesh = await InteriorMeshJob().run(
           preliminary.png,
           fallbackPng: working?.png,
         );
+        if (const bool.fromEnvironment('FLATTEN_EXPORT_MESH')) {
+          if (working != null) {
+            await File('${folder.path}/Image ${i + 1} Working.png')
+                .writeAsBytes(working.png);
+          }
+          Map<String, dynamic> encodeMesh(InteriorMesh mesh) => {
+            ...mesh.evidence,
+            'rows': mesh.rows,
+            'columns': mesh.columns,
+            'method': mesh.method,
+            'grid': [
+              for (final p in mesh.points) [p.x, p.y],
+            ],
+            if (mesh.preservedMesh != null)
+              'preserved_mesh': encodeMesh(mesh.preservedMesh!),
+            if (mesh.refinementRegions.isNotEmpty)
+              'refinement_regions': mesh.refinementRegions,
+          };
+          await File('${folder.path}/Image ${i + 1} Mesh.json')
+              .writeAsString(jsonEncode(encodeMesh(diagnosticMesh)));
+        }
+        final rigid = isRigidDocumentForFlattening(
+          selected.boundary,
+          identifyDocumentFormat(selected.estimatedRatio, textLines),
+          textLines,
+        );
+        final mesh =
+            const bool.fromEnvironment('FLATTEN_SKIP_MESH') ||
+                (const bool.fromEnvironment('FLATTEN_RUNTIME_POLICY') && rigid)
+            ? null
+            : diagnosticMesh;
         if (const bool.fromEnvironment('FLATTEN_REQUIRE_MESH') &&
             mesh == null) {
           throw StateError(

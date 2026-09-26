@@ -12,22 +12,21 @@ class InteriorMesh {
     this.points,
     this.method, {
     this.evidence = const {},
+    this.preservedMesh,
+    this.refinementRegions = const [],
   });
   final Map<String, dynamic> evidence;
   final int rows, columns;
   final List<TrackerPoint> points;
   final String method;
+  final InteriorMesh? preservedMesh;
+  final List<List<double>> refinementRegions;
   factory InteriorMesh.identity({int rows = 49, int columns = 49}) =>
-      InteriorMesh(
-        rows,
-        columns,
-        [
-          for (var y = 0; y < rows; y++)
-            for (var x = 0; x < columns; x++)
-              TrackerPoint(x / (columns - 1), y / (rows - 1)),
-        ],
-        'Identity mesh · insufficient deformation evidence',
-      );
+      InteriorMesh(rows, columns, [
+        for (var y = 0; y < rows; y++)
+          for (var x = 0; x < columns; x++)
+            TrackerPoint(x / (columns - 1), y / (rows - 1)),
+      ], 'Identity mesh · insufficient deformation evidence');
   factory InteriorMesh.fromJson(Map<String, dynamic> d) {
     final rows = d['rows'] as int, cols = d['columns'] as int;
     final p = [
@@ -50,15 +49,42 @@ class InteriorMesh {
         }
       }
     }
+    final preserved = d['preserved_mesh'] == null
+        ? null
+        : InteriorMesh.fromJson(d['preserved_mesh'] as Map<String, dynamic>);
+    final regions = [
+      for (final region in (d['refinement_regions'] as List? ?? const []))
+        [for (final value in region as List) (value as num).toDouble()],
+    ];
+    if ((preserved == null) != regions.isEmpty ||
+        regions.any(
+          (r) =>
+              r.length != 4 ||
+              r.any((v) => !v.isFinite || v < 0 || v > 1) ||
+              r[0] >= r[2] ||
+              r[1] >= r[3],
+        )) {
+      throw const FormatException('Invalid local refinement regions');
+    }
     return InteriorMesh(
       rows,
       cols,
       p,
       d['method'] as String,
-      evidence: {...d}..remove('grid'),
+      evidence: {...d}
+        ..remove('grid')
+        ..remove('preserved_mesh'),
+      preservedMesh: preserved,
+      refinementRegions: regions,
     );
   }
   TrackerPoint at(double u, double v) {
+    if (preservedMesh != null &&
+        !refinementRegions.any(
+          (r) => u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3],
+        )) {
+      return preservedMesh!.at(u, v);
+    }
     final x = (u * (columns - 1)).clamp(0, columns - 1 - 1e-9),
         y = (v * (rows - 1)).clamp(0, rows - 1 - 1e-9);
     final ix = x.floor(), iy = y.floor(), fx = x - ix, fy = y - iy;
@@ -95,10 +121,12 @@ class InteriorMeshJob {
     final script = File(
       const String.fromEnvironment(
         'DOCTRACK_MESH_SCRIPT',
-        defaultValue: '$root/Source/tool/mesh_frame/dewarp_mesh.py',
+        defaultValue: '$root/Source/tool/protected_ink_mesh.py',
       ),
     );
-    if (!await python.exists() || !await script.exists()) return InteriorMesh.identity();
+    if (!await python.exists() || !await script.exists()) {
+      return InteriorMesh.identity();
+    }
     final temp = await Directory.systemTemp.createTemp('doctrack-mesh-');
     try {
       await File('${temp.path}/input.png').writeAsBytes(png);

@@ -4,7 +4,13 @@ import 'flatten_geometry.dart';
 
 /// Corner radii are measured in output pixels, after perspective correction.
 class RoundedOutline {
-  RoundedOutline(FlattenGeometry geometry, this.width, this.height) {
+  RoundedOutline(
+    FlattenGeometry geometry,
+    this.width,
+    this.height, {
+    bool normalizeIdCorners = false,
+    bool repairMissingCorners = true,
+  }) {
     final measurements = <double>[];
     for (final s in geometry.segments) {
       if (!s.isCurve) continue;
@@ -24,7 +30,7 @@ class RoundedOutline {
     // transitions as the matching rounded corner. A hard passport corner is
     // made from two long sides and therefore does not qualify here.
     var matchingShortCorners = 0;
-    if (corners.length >= 2) {
+    if ((repairMissingCorners && corners.length >= 2) || normalizeIdCorners) {
       for (var i = 0; i < geometry.segments.length; i++) {
         final s = geometry.segments[i];
         if (s.isCurve || s.isImageClip) continue;
@@ -51,19 +57,27 @@ class RoundedOutline {
     // Two clear arcs plus one matching short transition are sufficient to
     // establish the rounded stock family; the remaining corner is commonly
     // hidden by glare, an emblem, or a low-contrast edge.
-    if (corners.length >= 2 && matchingShortCorners > 0) {
+    if (repairMissingCorners && !normalizeIdCorners && corners.length >= 2 && matchingShortCorners > 0) {
       corners.addAll([0, 1, 2, 3]);
     }
     if (corners.length < 2) {
       corners.clear(); // One uncertain arc cannot establish a corner family.
       return;
     }
-    if (corners.length == 3) corners.addAll([0, 1, 2, 3]);
+    if (repairMissingCorners && !normalizeIdCorners && corners.length == 3) {
+      corners.addAll([0, 1, 2, 3]);
+    }
     measurements.sort();
     radius = measurements[measurements.length ~/ 2].clamp(
       0,
       math.min(width, height) * .2,
     );
+    if (normalizeIdCorners) {
+      // ID cards use one common physical corner radius. A glare, crop, or
+      // weak edge must not make one corner visibly smaller than the others.
+      corners.addAll([0, 1, 2, 3]);
+      radius = math.max(radius, math.min(width, height) * .06);
+    }
   }
   final int width, height;
   final Set<int> corners = {};
