@@ -35,14 +35,20 @@ def text_rulers(gray, features):
     return result
 
 
-def ruler_mesh(horizontal, vertical=(), prior=None, n=33):
+def ruler_mesh(horizontal, vertical=(), prior=None, n=33, *, fixed_boundary=False):
     """Least-squares ruler constraints plus bending and displacement penalties.
 
     Each guide is (observed points, confidence). Separate x/y equations share
     the same lattice. Weak priors preserve areas with no reliable evidence.
+    fixed_boundary constrains the entire outer frame during the solve, rather
+    than subtracting a boundary displacement after fitting the rulers.
     """
     u,v=np.meshgrid(np.linspace(0,1,n),np.linspace(0,1,n))
     identity=np.stack([u,v],-1)
+    free=np.ones((n,n),bool)
+    if fixed_boundary:
+        free[[0,-1],:]=False;free[:,[0,-1]]=False
+    free=free.reshape(-1)
     base=identity if prior is None else prior
     out=base.copy()
     for axis,guides in ((1,horizontal),(0,vertical)):
@@ -70,10 +76,14 @@ def ruler_mesh(horizontal, vertical=(), prior=None, n=33):
         rr=np.asarray(rr);cc=np.asarray(cc);values=np.asarray(values);rhs=np.asarray(rhs)
         def normal(v):
             rows=np.bincount(rr,weights=values*v[cc],minlength=len(rhs))
-            return np.bincount(cc,weights=values*rows[rr],minlength=n*n)
+            result=np.bincount(cc,weights=values*rows[rr],minlength=n*n)
+            result[~free]=0
+            return result
         b=np.bincount(cc,weights=values*rhs[rr],minlength=n*n)
+        b[~free]=0
         diagonal=np.bincount(cc,weights=values**2,minlength=n*n)
         delta=(base[:,:,axis]-identity[:,:,axis]).reshape(-1).copy()
+        delta[~free]=0
         residual=b-normal(delta);z=residual/diagonal;direction=z.copy();rz=residual@z
         for _ in range(500):
             if np.linalg.norm(residual)<1e-8:break

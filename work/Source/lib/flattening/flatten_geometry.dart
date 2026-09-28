@@ -10,13 +10,36 @@ class FlattenGeometry {
     this.sourceWidth,
     this.sourceHeight, {
     this.followCurves = true,
-  }) : corners = List.unmodifiable(corners) {
+    List<TrackerPoint>? projectionCorners,
+  }) : corners = List.unmodifiable(corners),
+       projectionCorners = List.unmodifiable(projectionCorners ?? corners) {
     if (corners.length != 4 || segments.isEmpty) {
       throw ArgumentError('A detected four-corner document is required.');
     }
-    final q = corners;
+    if (projectionCorners != null && followCurves) {
+      throw ArgumentError(
+        'A separate projection frame establishes perspective before dewarping.',
+      );
+    }
+    final q = this.projectionCorners;
+    if (q.length != 4)
+      throw ArgumentError('Four projection corners are required');
+    for (final p in corners) {
+      if (!p.x.isFinite || !p.y.isFinite)
+        throw ArgumentError('Invalid crop corner');
+    }
     for (final p in q) {
       if (!p.x.isFinite || !p.y.isFinite) throw ArgumentError('Invalid corner');
+    }
+    if (projectionCorners != null) {
+      for (var i = 0; i < 4; i++) {
+        final a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+        if ((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) <= 1e-10) {
+          throw ArgumentError(
+            'The projection frame must be convex and ordered',
+          );
+        }
+      }
     }
     final dx1 = q[1].x - q[2].x, dx2 = q[3].x - q[2].x;
     final dy1 = q[1].y - q[2].y, dy2 = q[3].y - q[2].y;
@@ -87,7 +110,28 @@ class FlattenGeometry {
       }
     }
   }
+
+  /// First pins and segments retain the crop. The second virtual frame supplies
+  /// camera geometry only; a separately measured content map dewarps afterward.
+  /// Rectified crop samples may extend outside [0, 1]; the caller must retain
+  /// them in its output canvas rather than clip to the virtual rectangle.
+  FlattenGeometry.withProjectionFrame(
+    List<TrackerPoint> cropCorners,
+    List<BoundarySegment> segments,
+    int sourceWidth,
+    int sourceHeight, {
+    required List<TrackerPoint> referenceCorners,
+  }) : this(
+         cropCorners,
+         segments,
+         sourceWidth,
+         sourceHeight,
+         followCurves: false,
+         projectionCorners: referenceCorners,
+       );
+
   final List<TrackerPoint> corners;
+  final List<TrackerPoint> projectionCorners;
   final List<BoundarySegment> segments;
   final int sourceWidth, sourceHeight;
   final bool followCurves;
@@ -174,8 +218,14 @@ class FlattenGeometry {
     final metric = projectiveRatio;
     if (metric != null) return metric;
     double length(int a, int b) => math.sqrt(
-      math.pow((corners[a].x - corners[b].x) * sourceWidth, 2) +
-          math.pow((corners[a].y - corners[b].y) * sourceHeight, 2),
+      math.pow(
+            (projectionCorners[a].x - projectionCorners[b].x) * sourceWidth,
+            2,
+          ) +
+          math.pow(
+            (projectionCorners[a].y - projectionCorners[b].y) * sourceHeight,
+            2,
+          ),
     );
     return ((length(0, 1) + length(2, 3)) / (length(1, 2) + length(3, 0)))
         .clamp(.1, 10);

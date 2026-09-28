@@ -25,6 +25,11 @@ class FlattenedImage {
   final String format;
 }
 
+class _MeshRaster {
+  img.Image? raw;
+  img.Image? completed;
+}
+
 Future<FlattenedImage> flattenImage(
   Uint8List bytes,
   BoundaryResult boundary, {
@@ -37,6 +42,9 @@ Future<FlattenedImage> flattenImage(
   bool repairBorder = true,
   bool? preserveRoundedCorners,
   double documentScale = 1.0,
+  bool reuseParentRaster = const bool.fromEnvironment(
+    'DOCTRACK_REUSE_PARENT_RASTER',
+  ),
 }) => Isolate.run(
   () => _flattenImage(
     bytes,
@@ -50,6 +58,7 @@ Future<FlattenedImage> flattenImage(
     repairBorder: repairBorder,
     preserveRoundedCorners: preserveRoundedCorners,
     documentScale: documentScale,
+    reuseParentRaster: reuseParentRaster,
   ),
 );
 
@@ -65,6 +74,10 @@ FlattenedImage _flattenImage(
   bool repairBorder = true,
   bool? preserveRoundedCorners,
   double documentScale = 1.0,
+  bool reuseParentRaster = false,
+  img.Image? decodedSource,
+  _MeshRaster? capture,
+  bool encode = true,
 }) {
   if (maxDimension < 16 || maxDimension > 4096) {
     throw ArgumentError('Invalid output resolution');
@@ -72,11 +85,11 @@ FlattenedImage _flattenImage(
   if (!documentScale.isFinite || documentScale < 1.0 || documentScale > 1.25) {
     throw ArgumentError('Invalid document scale');
   }
-  final decoded = img.decodeImage(bytes);
+  final decoded = decodedSource ?? img.decodeImage(bytes);
   if (decoded == null) {
     throw const FormatException('Image could not be decoded');
   }
-  final source = img.bakeOrientation(decoded);
+  final source = decodedSource ?? img.bakeOrientation(decoded);
   if (source.width != boundary.width || source.height != boundary.height) {
     throw ArgumentError('The image and detected shape do not match');
   }
@@ -173,7 +186,31 @@ FlattenedImage _flattenImage(
       repairBorder &&
       !rounded &&
       const bool.fromEnvironment('DOCTRACK_COVERAGE_REPAIR');
-  final output = img.Image(width: w, height: h, numChannels: 4);
+  final preservedMesh = interiorMesh?.preservedMesh;
+  _MeshRaster? parentRaster;
+  if (reuseParentRaster && preservedMesh != null) {
+    parentRaster = _MeshRaster();
+    _flattenImage(
+      bytes,
+      boundary,
+      ratio: ratio,
+      followCurves: followCurves,
+      maxDimension: maxDimension,
+      textLines: textLines,
+      estimatedRatio: estimatedRatio,
+      interiorMesh: preservedMesh,
+      repairBorder: repairBorder,
+      preserveRoundedCorners: preserveRoundedCorners,
+      documentScale: documentScale,
+      reuseParentRaster: true,
+      decodedSource: source,
+      capture: parentRaster,
+      encode: false,
+    );
+  }
+  final output = parentRaster == null
+      ? img.Image(width: w, height: h, numChannels: 4)
+      : img.Image.from(parentRaster.raw!);
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
       final u = (x + .5) / w, v = (y + .5) / h;
@@ -184,6 +221,19 @@ FlattenedImage _flattenImage(
       // perimeter without changing the detected quadrilateral or paper crop.
       final sampleU = ((u - .5) / documentScale + .5).clamp(0.0, 1.0);
       final sampleV = ((v - .5) / documentScale + .5).clamp(0.0, 1.0);
+      if (parentRaster != null) {
+        if (!interiorMesh!.refinementRegions.any(
+          (r) =>
+              sampleU >= r[0] &&
+              sampleU <= r[2] &&
+              sampleV >= r[1] &&
+              sampleV <= r[3],
+        ))
+          continue;
+        // A changed source coordinate may become unavailable. Keep the same
+        // transparent starting pixel as a full redraw within this patch.
+        output.setPixelRgba(x, y, 0, 0, 0, 0);
+      }
       final local =
           interiorMesh?.at(sampleU, sampleV) ?? TrackerPoint(sampleU, sampleV);
       final p = map.source(local.x, local.y);
@@ -227,6 +277,9 @@ FlattenedImage _flattenImage(
       );
     }
   }
+  // Keep the unrepaired source-map raster separate from the protected result.
+  // Stock estimation must see the same raw pixels as the complete renderer.
+  if (capture != null) capture.raw = img.Image.from(output);
   if (doRepairBorder) {
     final surface = BackgroundSurface.estimate(
       output,
@@ -290,23 +343,24 @@ FlattenedImage _flattenImage(
     }
     featherBackground(output, repaired, surface, adjacentColor: adjacentStock);
   }
-  final preservedMesh = interiorMesh?.preservedMesh;
   if (preservedMesh != null) {
-    final preserved = img.decodePng(
-      _flattenImage(
-        bytes,
-        boundary,
-        ratio: ratio,
-        followCurves: followCurves,
-        maxDimension: maxDimension,
-        textLines: textLines,
-        estimatedRatio: estimatedRatio,
-        interiorMesh: preservedMesh,
-        repairBorder: repairBorder,
-        preserveRoundedCorners: preserveRoundedCorners,
-        documentScale: documentScale,
-      ).png,
-    )!;
+    final preserved =
+        parentRaster?.completed ??
+        img.decodePng(
+          _flattenImage(
+            bytes,
+            boundary,
+            ratio: ratio,
+            followCurves: followCurves,
+            maxDimension: maxDimension,
+            textLines: textLines,
+            estimatedRatio: estimatedRatio,
+            interiorMesh: preservedMesh,
+            repairBorder: repairBorder,
+            preserveRoundedCorners: preserveRoundedCorners,
+            documentScale: documentScale,
+          ).png,
+        )!;
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final u = (((x + .5) / w - .5) / documentScale + .5).clamp(0.0, 1.0);
@@ -332,8 +386,9 @@ FlattenedImage _flattenImage(
       }
     }
   }
+  if (capture != null) capture.completed = output;
   return FlattenedImage(
-    Uint8List.fromList(img.encodePng(output)),
+    encode ? Uint8List.fromList(img.encodePng(output)) : Uint8List(0),
     w,
     h,
     aspect,

@@ -1,9 +1,12 @@
 import 'package:tracker_engine/tracker_engine.dart';
 
 import 'scanner/review_scanner.dart';
+import 'scanner/detected_text_cache.dart';
 import 'flattening/flatten_preview.dart';
 import 'flattening/flatten_image.dart';
 import 'flattening/isolate_document.dart';
+import 'flattening/processing_loading.dart';
+import 'flattening/document_words.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -214,6 +217,17 @@ class Store extends ChangeNotifier {
   BoundaryResult? prediction;
   bool detecting = false, showPrediction = false;
   final Map<String, BoundaryResult> _predictionCache = {};
+  final DetectedTextCache _predictionTextCache = DetectedTextCache();
+  List<String>? predictionTextLines(String imagePath, Uint8List bytes) =>
+      prediction != null && current?.imagePath == imagePath
+      ? _predictionTextCache.lookup(imagePath, bytes)
+      : null;
+  List<DocumentWordGeometry>? predictionPhotoWords(
+    String imagePath,
+    Uint8List bytes,
+  ) => prediction != null && current?.imagePath == imagePath
+      ? _predictionTextCache.lookupWords(imagePath, bytes)
+      : null;
   int detectionRevision = 0;
   String? detectionError;
   Future<void> detectCurrent({bool reveal = true}) async {
@@ -230,12 +244,25 @@ class Store extends ChangeNotifier {
     try {
       final bytes = await File('$root/${sample.imagePath}').readAsBytes();
       cancellation.check();
+      List<String>? detectedLines;
+      List<DocumentWordGeometry>? detectedWords;
       final result =
           await (detector?.call(bytes, cancellation) ??
-              detectReviewImage(bytes, cancellation: cancellation));
+              detectReviewImage(
+                bytes,
+                cancellation: cancellation,
+                onTextLines: (lines) => detectedLines = lines,
+                onPhotoWords: (words) => detectedWords = words,
+              ));
       if (revision != detectionRevision) return;
       prediction = result;
       _predictionCache[sample.imagePath] = result;
+      _predictionTextCache.record(
+        sample.imagePath,
+        bytes,
+        detectedLines,
+        words: detectedWords,
+      );
     } catch (error) {
       if (revision == detectionRevision) {
         detectionError = 'Detection failed: $error';
@@ -573,6 +600,8 @@ class _HomeState extends State<_Home> {
   String? flatImagePath;
   int flatRevision = 0;
   String? flatError;
+  DateTime? flatStartedAt;
+  String flatStage = 'Finding the document…';
   Completer<void>? flatDetectionWait;
 
   void _closeFlatten() {
@@ -617,6 +646,9 @@ class _HomeState extends State<_Home> {
       flattenPreviewOpen = true;
       flatImagePath = sample.imagePath;
       flatError = null;
+      flatPreview = null;
+      flatStartedAt = DateTime.now();
+      flatStage = 'Finding the document…';
     });
     bool current() =>
         mounted &&
@@ -656,35 +688,44 @@ class _HomeState extends State<_Home> {
       if (mounted && current()) {
         setState(() => flatPreview = null);
       }
-      var textLines = <String>[];
-      try {
-        textLines =
-            await const MethodChannel('doctrack/window')
-                .invokeListMethod<String>('recognizeDocumentText', {
-                  'data': bytes,
-                  'id': 0,
-                }) ??
-            [];
-      } on PlatformException {
-        /* Geometry remains available when OCR fails. */
-      } on MissingPluginException {
-        /* Other hosts can supply format evidence. */
+      var textLines = store.predictionTextLines(sample.imagePath, bytes);
+      setState(() => flatStage = 'Reading the document…');
+      if (textLines == null) {
+        try {
+          textLines =
+              await const MethodChannel('doctrack/window')
+                  .invokeListMethod<String>('recognizeDocumentText', {
+                    'data': bytes,
+                    'id': 0,
+                  }) ??
+              [];
+        } on PlatformException {
+          /* Geometry remains available when OCR fails. */
+        } on MissingPluginException {
+          /* Other hosts can supply format evidence. */
+        }
       }
+      final resolvedTextLines = textLines ?? <String>[];
       if (!current()) return;
+      setState(
+        () => flatStage = 'Separating the document from its background…',
+      );
       final isolated = await isolateDocument(
         bytes,
         boundary,
-        textLines: textLines,
+        textLines: resolvedTextLines,
       );
       if (!current()) return;
       setState(
         () => flatPreview = FlattenPreview(
           key: flatKey,
+          processingStartedAt: flatStartedAt,
+          onClose: _closeFlatten,
           bytes: isolated.png,
           measurementBytes: isolated.measurementPng,
           boundary: isolated.boundary,
           name: sample.name,
-          textLines: textLines,
+          textLines: resolvedTextLines,
           estimatedRatio: isolated.estimatedRatio,
           outputDirectory: "$root/../Flattened Outputs",
           onResult: (result) {
@@ -694,7 +735,7 @@ class _HomeState extends State<_Home> {
               boundary: isolated.boundary,
               sourceBytes: isolated.png,
               measurementBytes: isolated.measurementPng,
-              textLines: List<String>.from(textLines),
+              textLines: List<String>.from(resolvedTextLines),
               estimatedRatio: isolated.estimatedRatio,
               result: result,
             );
@@ -706,7 +747,6 @@ class _HomeState extends State<_Home> {
       setState(() => flatError = 'Could not flatten: $e');
     }
   }
-
 
   String _flattenBoundaryKey(BoundaryResult boundary) => [
     'workflow-v3-stable-preview',
@@ -1072,10 +1112,10 @@ class _HomeState extends State<_Home> {
                         ? flatPreview ??
                               (flatError != null
                                   ? Center(child: Text(flatError!))
-                                  : const Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
+                                  : ImageProcessingLoading(
+                                      startedAt: flatStartedAt!,
+                                      stage: flatStage,
+                                      onClose: _closeFlatten,
                                     ))
                         : _ZoomableCanvas(
                             key: ValueKey(s.imagePath),

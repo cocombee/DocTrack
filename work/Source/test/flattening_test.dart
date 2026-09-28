@@ -81,6 +81,30 @@ void main() {
         )).png,
       )!;
       final prior = await render(original), revised = await render(correction);
+      final storedWindow = InteriorMesh.fromJson({
+        'rows': 3,
+        'columns': 3,
+        'method': 'local window',
+        'grid_window': [5, 5, 1, 1],
+        'grid': [
+          for (var y = 1; y <= 3; y++)
+            for (var x = 1; x <= 3; x++)
+              [correction.points[y * 5 + x].x, correction.points[y * 5 + x].y],
+        ],
+        'preserved_mesh': {
+          'rows': 5,
+          'columns': 5,
+          'method': 'prior',
+          'grid': [
+            for (final p in original.points) [p.x, p.y],
+          ],
+        },
+        'refinement_regions': [
+          [.25, .25, .75, .75],
+        ],
+      });
+      final compactRender = await render(storedWindow);
+      expect(compactRender.getBytes(), revised.getBytes());
       var changedInside = 0;
       for (var y = 0; y < 80; y++) {
         for (var x = 0; x < 80; x++) {
@@ -148,6 +172,97 @@ void main() {
     expect(p.x, closeTo(.37, 1e-9));
     expect(p.y, closeTo(.62, 1e-9));
   });
+  test(
+    'separate projection angles preserve first crop pins and silhouette',
+    () {
+      final crop = q.toList(), references = q.toList();
+      references[0] = const TrackerPoint(.18, .13);
+      final segments = edges(crop);
+      final g = FlattenGeometry.withProjectionFrame(
+        crop,
+        segments,
+        800,
+        600,
+        referenceCorners: references,
+      );
+      expect(g.corners, q);
+      expect(g.segments, same(segments));
+      expect(g.followCurves, isFalse);
+      final originalCrop = FlattenGeometry(
+        q,
+        segments,
+        800,
+        600,
+        followCurves: false,
+      );
+      for (var y = 0; y <= 20; y++) {
+        for (var x = 0; x <= 20; x++) {
+          final point = TrackerPoint(x / 20, y / 20);
+          expect(g.contains(point), originalCrop.contains(point));
+        }
+      }
+      final outsideUnitFrame = g.rectify(q[0]);
+      expect(outsideUnitFrame.x < 0 || outsideUnitFrame.y < 0, isTrue);
+      for (var i = 0; i < 4; i++) {
+        final source = g.source(i == 1 || i == 2 ? 1 : 0, i >= 2 ? 1 : 0);
+        expect(source.x, closeTo(references[i].x, 1e-9));
+        expect(source.y, closeTo(references[i].y, 1e-9));
+      }
+      crop[0] = const TrackerPoint(0, 0);
+      references[0] = const TrackerPoint(1, 1);
+      expect(g.corners, q);
+      expect(g.projectionCorners[0].x, .18);
+      expect(g.source(0, 0).x, closeTo(.18, 1e-9));
+    },
+  );
+  test(
+    'second frame sets camera proportions without a card size assumption',
+    () {
+      const reference = [
+        TrackerPoint(.2, .2),
+        TrackerPoint(.8, .2),
+        TrackerPoint(.8, .7),
+        TrackerPoint(.2, .7),
+      ];
+      final g = FlattenGeometry.withProjectionFrame(
+        q,
+        edges(q),
+        800,
+        600,
+        referenceCorners: reference,
+      );
+      expect(g.estimatedRatio, closeTo(1.6, 1e-9));
+      final point = g.rectify(g.source(.27, .64));
+      expect(point.x, closeTo(.27, 1e-9));
+      expect(point.y, closeTo(.64, 1e-9));
+    },
+  );
+  test(
+    'invalid second frame or crop-driven dewarp cannot masquerade as camera',
+    () {
+      expect(
+        () => FlattenGeometry(q, edges(q), 800, 600, projectionCorners: q),
+        throwsArgumentError,
+      );
+      for (final reference in [
+        q.take(3).toList(),
+        q.reversed.toList(),
+        [q[0], q[2], q[1], q[3]],
+        [const TrackerPoint(double.nan, 0), ...q.skip(1)],
+      ]) {
+        expect(
+          () => FlattenGeometry.withProjectionFrame(
+            q,
+            edges(q),
+            800,
+            600,
+            referenceCorners: reference,
+          ),
+          throwsArgumentError,
+        );
+      }
+    },
+  );
   test('bowed side generates a nonfolding interior mesh', () {
     const p = [
       TrackerPoint(.1, .1),

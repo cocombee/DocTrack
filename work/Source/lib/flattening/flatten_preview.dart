@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:tracker_engine/tracker_engine.dart';
@@ -13,6 +12,7 @@ import 'document_orientation.dart';
 import 'mesh_preview.dart';
 import 'document_format.dart';
 import 'rigid_document.dart';
+import 'processing_loading.dart';
 
 class FlattenPreview extends StatefulWidget {
   const FlattenPreview({
@@ -26,6 +26,8 @@ class FlattenPreview extends StatefulWidget {
     this.estimatedRatio,
     this.initialResult,
     this.onResult,
+    this.processingStartedAt,
+    this.onClose,
   });
   final Uint8List bytes;
   final Uint8List? measurementBytes;
@@ -35,6 +37,8 @@ class FlattenPreview extends StatefulWidget {
   final double? estimatedRatio;
   final FlattenedImage? initialResult;
   final ValueChanged<FlattenedImage>? onResult;
+  final DateTime? processingStartedAt;
+  final VoidCallback? onClose;
   @override
   State<FlattenPreview> createState() => FlattenPreviewState();
 }
@@ -45,6 +49,8 @@ class FlattenPreviewState extends State<FlattenPreview> {
   bool curves = true, busy = true, saving = false;
   InteriorMeshJob? meshJob;
   DocumentOrientationJob? orientationJob;
+  late DateTime processingStartedAt;
+  String processingStage = 'Preparing the document…';
   @override
   void dispose() {
     meshJob?.cancel();
@@ -56,6 +62,7 @@ class FlattenPreviewState extends State<FlattenPreview> {
   @override
   void initState() {
     super.initState();
+    processingStartedAt = widget.processingStartedAt ?? DateTime.now();
     if (widget.initialResult != null) {
       result = widget.initialResult;
       busy = false;
@@ -92,9 +99,16 @@ class FlattenPreviewState extends State<FlattenPreview> {
         !listEquals(oldWidget.measurementBytes, widget.measurementBytes) ||
         !listEquals(oldWidget.textLines, widget.textLines) ||
         oldWidget.estimatedRatio != widget.estimatedRatio ||
-        jsonEncode(oldWidget.boundary.boundarySegments.map((s) => s.toJson()).toList()) !=
-            jsonEncode(widget.boundary.boundarySegments.map((s) => s.toJson()).toList());
+        jsonEncode(
+              oldWidget.boundary.boundarySegments
+                  .map((s) => s.toJson())
+                  .toList(),
+            ) !=
+            jsonEncode(
+              widget.boundary.boundarySegments.map((s) => s.toJson()).toList(),
+            );
     if (!changed) return;
+    processingStartedAt = widget.processingStartedAt ?? DateTime.now();
     revision++;
     meshJob?.cancel();
     orientationJob?.cancel();
@@ -118,6 +132,7 @@ class FlattenPreviewState extends State<FlattenPreview> {
       busy = true;
       error = null;
       result = null;
+      processingStage = 'Preparing the document…';
     });
     try {
       meshJob?.cancel();
@@ -138,10 +153,8 @@ class FlattenPreviewState extends State<FlattenPreview> {
         repairBorder: false,
       );
       if (!mounted || revision != request) return;
-      final edgeRisk = widget.boundary.corners?.any((p) =>
-              p.x <= .02 || p.x >= .98 || p.y <= .02 || p.y >= .98) ??
-          false;
-      final observedRatio = widget.estimatedRatio ??
+      final observedRatio =
+          widget.estimatedRatio ??
           widget.boundary.width / widget.boundary.height;
       final format = identifyDocumentFormat(observedRatio, widget.textLines);
       final idCard = format.label.startsWith('ID /');
@@ -150,37 +163,6 @@ class FlattenPreviewState extends State<FlattenPreview> {
         format,
         widget.textLines,
       );
-      double distance(TrackerPoint a, TrackerPoint b) =>
-          ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
-      bool nearStraight(BoundarySegment s) {
-        if (!s.isCurve) return true;
-        final length = math.sqrt(distance(s.start, s.end));
-        if (length < 1e-6) return false;
-        var maximum = 0.0;
-        for (var i = 1; i < 8; i++) {
-          final p = s.at(i / 8), a = s.start, b = s.end;
-          final dx = b.x - a.x, dy = b.y - a.y;
-          final t = ((p.x - a.x) * dx + (p.y - a.y) * dy) /
-              (dx * dx + dy * dy);
-          final q = TrackerPoint(a.x + t.clamp(0, 1) * dx,
-              a.y + t.clamp(0, 1) * dy);
-          maximum = math.max(maximum, math.sqrt(distance(p, q)));
-        }
-        return maximum / length <= .02;
-      }
-      final flatFourSide = widget.boundary.boundarySegments.length <= 6 &&
-          widget.boundary.boundarySegments.every(nearStraight);
-      final roundedEvidence = widget.boundary.boundarySegments
-          .where((s) => s.isCurve)
-          .length;
-      final twoPointEvidence = widget.boundary.boundarySegments.where((s) {
-        if (s.isCurve || s.isImageClip) return false;
-        final dx = (s.end.x - s.start.x) * widget.boundary.width;
-        final dy = (s.end.y - s.start.y) * widget.boundary.height;
-        return math.sqrt(dx * dx + dy * dy) <=
-            math.min(widget.boundary.width, widget.boundary.height) * .2;
-      }).length;
-      final cornerEvidence = roundedEvidence >= 2 || twoPointEvidence >= 2;
       final standardCard = idCard || format.label.startsWith('Passport');
       final job = InteriorMeshJob();
       meshJob = job;
@@ -204,6 +186,7 @@ class FlattenPreviewState extends State<FlattenPreview> {
       // Always run the basic mesh once when curves are present so the preview
       // can confirm whether interior correction is actually needed. Rigid IDs
       // and near-straight paper still discard that candidate for final output.
+      setState(() => processingStage = 'Straightening text and lines…');
       final diagnosticMesh = curves
           ? await job.run(preliminary.png, fallbackPng: working?.png)
           : null;
@@ -220,6 +203,7 @@ class FlattenPreviewState extends State<FlattenPreview> {
         );
       }
       if (!mounted || revision != request) return;
+      setState(() => processingStage = 'Rendering the corrected image…');
       final output = await flattenImage(
         widget.bytes,
         widget.boundary,
@@ -246,6 +230,7 @@ class FlattenPreviewState extends State<FlattenPreview> {
         repairBorder: true,
       );
       if (!mounted || revision != request) return;
+      setState(() => processingStage = 'Checking orientation…');
       final orient = DocumentOrientationJob();
       orientationJob = orient;
       final upright = await orient.run(output);
@@ -286,7 +271,11 @@ class FlattenPreviewState extends State<FlattenPreview> {
 
   @override
   Widget build(BuildContext context) => busy
-      ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+      ? ImageProcessingLoading(
+          startedAt: processingStartedAt,
+          stage: processingStage,
+          onClose: widget.onClose,
+        )
       : error != null
       ? Center(child: Text(error!))
       : result == null

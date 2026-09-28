@@ -1,0 +1,53 @@
+{
+  "status": "Unfinished previous-method checkpoint, not a release-qualified result",
+  "accepted_preview": "Accepted Partial Preview.png",
+  "accepted_preview_scope": "27-layer partial; upper-left recipient block remains unfinished",
+  "experimental_map_scope": "Identity-root original-plane capture, four guarded stages plus a partial top-left vertical correction. No native preview or full-page qualification.",
+  "timing_status": "No successful fresh-source product timing qualification; cached probes are not product timings",
+  "source_probe_reproduction": "Four-stage probe observed a source-manifest change; frozen-source reproduction remains required",
+  "commercial_policy": "No new external dependencies, model weights, or owner-contact licensing",
+  "files": [
+    {
+      "file": "Accepted Partial Mesh.json.gz",
+      "original_sha256": "44bdfbf2b487a11a0759626cf2d41a1b30e9f8887eb3fe84b97b00550aa39e3e",
+      "bytes": 107406016,
+      "source_review_path": "Recipient Invoice Focused Stock Review/Image 17 Mesh.json",
+      "parts": [
+        {
+          "file": "Accepted Partial Mesh.json.gz.001",
+          "bytes": 50331648,
+          "sha256": "ee89f8965ef6df2bdedbee1e8a0d06131ab9097dc06e65cf57129dfc51c2b35d"
+        },
+        {
+          "file": "Accepted Partial Mesh.json.gz.002",
+          "bytes": 50331648,
+          "sha256": "34e95daacc0a1d0094452cc4d48b0f668fae661787f415ae664ecf95ed8da44a"
+        },
+        {
+          "file": "Accepted Partial Mesh.json.gz.003",
+          "bytes": 6742720,
+          "sha256": "86e85e122efa25db9e9ee9a58ba1358635f13ed9d2224fd2e5bacc4d895c6466"
+        }
+      ],
+      "archive_sha256": "56e0182200581ce3b3af4b82cae7e54b723706886ba82d42401d03f319f13e96"
+    },
+    {
+      "file": "Accepted Partial Preview.png",
+      "original_sha256": "a4bcd17754aa32a5d352f81c367ec571b6ee26c8779a8a22cef2815543548372",
+      "bytes": 1219592,
+      "source_review_path": "Recipient Invoice Focused Stock Native Review/Image 17.png"
+    },
+    {
+      "file": "Original Plane Experimental Mesh.json.gz",
+      "original_sha256": "b6acd4d88680ccbff46e0bd87dc3a786f72c9b727bdf6a6441bb98240e9b3003",
+      "bytes": 7329747,
+      "source_review_path": "Original Corner Vertical Review/Image 17 Mesh.json"
+    },
+    {
+      "file": "Original Perspective Basis.png",
+      "original_sha256": "bba43c9c2479680cf5ea198ff20fce2d5eeb84a29df5de3e30cc2349be0d7208",
+      "bytes": 876941,
+      "source_review_path": "Pink Invoice Baseline/Image 17 Preliminary.png"
+    }
+  ]
+}
