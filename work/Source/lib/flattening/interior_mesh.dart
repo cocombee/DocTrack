@@ -224,7 +224,7 @@ class InteriorMeshJob {
     if (_cancelled || _started) return InteriorMesh.identity();
     _started = true;
     const root =
-        '/Users/mrkokom/My Drive (cocombees@gmail.com)/Codex/Apps/DocTrack/work';
+        '/Users/mrkokom/Library/CloudStorage/GoogleDrive-cocombees@gmail.com/My Drive/Codex/Apps/DocTrack/work';
     final python = File(
       executablePath ?? '$root/Scanner Integration/.model-eval/bin/python',
     );

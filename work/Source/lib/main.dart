@@ -26,7 +26,7 @@ import 'curve_reveal_icon.dart';
 void main() => runApp(const PenToolApp());
 
 const root =
-    '/Users/mrkokom/My Drive (cocombees@gmail.com)/Codex/Apps/DocTrack/work/Data';
+    '/Users/mrkokom/Library/CloudStorage/GoogleDrive-cocombees@gmail.com/My Drive/Codex/Apps/DocTrack/work/Data';
 
 // shadcn dark (zinc) tokens
 const _bg = Color(0xFF09090B);
