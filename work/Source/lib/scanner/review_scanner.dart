@@ -7,7 +7,7 @@ import 'image_adapter.dart';
 
 // DocTrack research host only. Akaunting must supply approved bundled model
 // bytes itself; the reusable engines have no hardcoded paths or downloads.
-const _models='/Users/mrkokom/My Drive (cocombees@gmail.com)/Codex/Apps/DocTrack/work/Scanner Integration/DocAligner Evaluation';
+const _models='/Users/mrkokom/Library/CloudStorage/GoogleDrive-cocombees@gmail.com/My Drive/Codex/Apps/DocTrack/work/Scanner Integration/DocAligner Evaluation';
 class ReviewScanCancellation {
   static int _serial = 0;
   final int id = ++_serial;
