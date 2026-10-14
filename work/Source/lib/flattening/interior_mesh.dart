@@ -116,7 +116,7 @@ class InteriorMeshJob {
     bool advanced = false,
   }) async {
     const root =
-        '/Users/mrkokom/My Drive (cocombees@gmail.com)/Codex/Apps/DocTrack/work';
+        '/Users/mrkokom/Library/CloudStorage/GoogleDrive-cocombees@gmail.com/My Drive/Codex/Apps/DocTrack/work';
     final python = File('$root/Scanner Integration/.model-eval/bin/python');
     final script = File(
       const String.fromEnvironment(
